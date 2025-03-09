@@ -676,14 +676,12 @@ create table copia (
 	stock_disponible smallint not null	
 );
 
---Relacion copia pelicula
+--Relacion copia/inventario pelicula
 alter table copia add constraint copia_pelicula_fk
 foreign key (pelicula_id) references pelicula(id);
 
-select v.id_copia,v.titulo,count(v.id_copia) as unidades 
-from tmp_videoclub v
-group by v.id_copia,v.titulo;
 
+create view peliculas_total as
 select
 p.id,
 v.titulo,
@@ -692,9 +690,93 @@ from tmp_videoclub v
 inner join pelicula p
 on p.titulo = v.titulo
 group by p.id,v.titulo
-order by p.id
+order by p.id;
 
-select * from pelicula
+create view peliculas_alqui as
+select v.titulo, count(*) as alquiladas from tmp_videoclub v
+where v.fecha_devolucion is null
+group by v.titulo;
+
+--Inserta datos de copia/inventario
+insert into copia (pelicula_id,stock_total,stock_disponible)
+select 
+pt.id, 
+pt.stock_total,
+pt.stock_total - pa.alquiladas as stock_disponible
+from peliculas_total pt
+inner join peliculas_alqui pa
+on pt.titulo = pa.titulo;
+
+--Crear tabla registro
+create table registro (
+	id serial primary key,
+	pelicula_id integer not null,
+	socio_id integer not null,
+	fecha_alquiler date not null,
+	fecha_devolucion date
+);
+
+--Relacion registro pelicula
+alter table registro add constraint registro_pelicula_fk
+foreign key (pelicula_id) references pelicula(id);
+
+--Relacion registro socio
+alter table registro add constraint registro_socio_fk
+foreign key (socio_id) references socio(id);
+
+--Inserta datos de registro
+insert into registro (pelicula_id,socio_id,fecha_alquiler,fecha_devolucion)
+select p.id as pelicula_id,s.id as socio_id,cast(v.fecha_alquiler as date),cast(v.fecha_devolucion as date) from tmp_videoclub v
+inner join pelicula p
+on v.titulo = p.titulo
+inner join socio s
+on s.nombre = v.nombre and s.apellido_1 = v.apellido_1
+order by p.id asc;
+
+--Carnet de los socios
+select s.nombre,s.apellido_1,d.calle,d.numero,d.codigo_postal,c.nro_carnet 
+from socio s
+inner join carnet c
+on s.id = c.socio_id
+inner join direccion d
+on s.id = d.socio_id;
+
+--Peliculas registradas
+select p.titulo,p.sinopsis,p.director,c.stock_total as total_pelicula 
+from pelicula p
+inner join copia c
+on p.id = c.pelicula_id
+
+--Peliculas sin devolucion
+select p.titulo,c.stock_total - c.stock_disponible as cantidad_sin_devoucion from copia c
+inner join pelicula p
+on p.id = c.pelicula_id
+where (c.stock_total - c.stock_disponible) > 0;
+--Nota: Uso la tabla copia como un inventario
+
+--Socios con peliculas prestadas
+select 
+s.nombre,
+s.apellido_1,
+p.titulo,
+r.fecha_alquiler,
+case
+	when r.fecha_devolucion is null then 'Prestada'
+	else 'Entregada'
+end as is_prestado
+from pelicula p
+inner join registro r
+on p.id = r.pelicula_id
+inner join socio s
+on s.id = r.socio_id;
+
+--Peliculas disponibles para prestar
+select p.titulo,c.stock_disponible from copia c
+inner join pelicula p
+on p.id = c.pelicula_id
+where c.stock_disponible > 0;
+
+
 
 
 
